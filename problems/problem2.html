@@ -34,10 +34,15 @@
 
     // draws quaternion [w, x, y, z] in the "3.5D" way shown in class
     function draw_quaternion(q, color) {
-        let l = Math.min(Math.max(Math.abs(q[0]) + 0.2, 0.2), 1.2);
-        engine.draw_debug_vector([0,0,0], q[1], 0.03, 0.15, color, 0.9);
-        engine.draw_debug_line(vec_add_z(q[1], l), vec_add_z(q[1], -l), false, 0.01, 0x000000, 0.9);
-        engine.draw_debug_sphere(vec_add_z(q[1], q[0]), 0.05, color, 0.9);
+        let l = Math.min(Math.max(Math.abs(q[0]) + 0.2, 0.2), 2.2);
+        engine.draw_debug_vector([0,0,0], q[1], 0.03, 0.15, color, 1.0);
+        engine.draw_debug_line(vec_add_z(q[1], l), vec_add_z(q[1], -l), false, 0.01, 0x000000, 1.0);
+        engine.draw_debug_sphere(vec_add_z(q[1], q[0]), 0.05, color, 1.0);
+
+        for (let i = 0; i < l; i += 0.1) {
+            engine.draw_debug_sphere(vec_add_z(q[1], i), 0.015, 0x000000, 1.0);
+            engine.draw_debug_sphere(vec_add_z(q[1], -1*i), 0.015, 0x000000, 1.0);
+        }
     }
 
     function quaternion_norm(q) {
@@ -46,11 +51,11 @@
 
     function multiply_quaternions(q1, q2) {
         let w = q1[0] * q2[0] - dot_product(q1[1], q2[1]);
-        let v_a = mul_matrix_scalar(q2[1], q1[0]);
-        let v_b = mul_matrix_scalar(q1[1], q2[0]);
-        let v_c = cross_product(q1[1], q2[1]);
-        let v = add_matrix_matrix(v_a, add_matrix_matrix(v_b, v_c));
-        return [w, [v[0][0], v[1][0], v[2][0]]];
+        let v_a = mul_matrix_scalar(q2[1], q1[0]).map(row => row[0]);
+        let v_b = mul_matrix_scalar(q1[1], q2[0]).map(row => row[0]);
+        let v_c = cross_product(q1[1], q2[1]).map(row => row[0]);
+        let v = add_matrix_matrix(v_a, add_matrix_matrix(v_b, v_c)).map(row => row[0]);
+        return [[w, v], [v_a, v_b, v_c]];
     }
 
     let settings = {
@@ -115,7 +120,7 @@
     engine.animation_loop(() => {
         let q1 = [settings.w1, [settings.x1, settings.y1, settings.z1]];
         let q2 = [settings.w2, [settings.x2, settings.y2, settings.z2]];
-        let q3 = multiply_quaternions(q1, q2);
+        let [q3, basis] = multiply_quaternions(q1, q2);
 
         settings.q1_norm = quaternion_norm(q1);
         settings.q2_norm = quaternion_norm(q2);
@@ -125,10 +130,14 @@
 
         draw_quaternion(q1, 0xffaa00);
         draw_quaternion(q2, 0xaa00ff);
+        draw_quaternion(q3, 0x000000);
 
-        console.log(q1);
-        console.log(q3);
-        draw_quaternion(q3, 0x00aaff);
+        basis[1] = add_matrix_matrix(basis[2], basis[1]).map(row => row[0]);
+        basis[0] = add_matrix_matrix(basis[1], basis[0]).map(row => row[0]);
+
+        engine.draw_debug_vector([0,0,0], basis[2], 0.01, 0.1, 0x00aa00, 1.0);
+        engine.draw_debug_vector(basis[2], basis[1], 0.01, 0.1, 0x00aa00, 1.0);
+        engine.draw_debug_vector(basis[1], basis[0], 0.01, 0.1, 0x00aa00, 1.0);
 
         refresh_displays(gui);
     });
