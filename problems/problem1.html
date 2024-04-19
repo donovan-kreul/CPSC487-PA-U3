@@ -21,7 +21,7 @@
 <body>
 <script type="module">
     import {get_default_lil_gui, ThreeEngine, refresh_displays} from "../js/utils/utils_three.js";
-    import {add_matrix_matrix, sub_matrix_matrix, mul_matrix_matrix, identity_matrix, mul_matrix_3x3_vector_3x1} from "../js/utils/utils_math.js";
+    import {add_matrix_matrix, sub_matrix_matrix, mul_matrix_matrix, identity_matrix} from "../js/utils/utils_math.js";
 
     // todo: create a visualization that demonstrates your knowledge of displacement-based
     // todo: distance over SE(3).  Note that this will use your logarithm solution from PS_U3,
@@ -84,20 +84,25 @@
         return M.map(row => row.map(elem => c * elem));
     }
 
+    // stolen from utils_math.js
+    function mul_matrix_3x3_vector_3x1(matrix, vector) {
+        let res = mul_matrix_matrix(matrix, [[vector[0]], [vector[1]], [vector[2]]]);
+        return [res[0][0], res[1][0], res[2][0]];
+    }
+
     // R 3x3 matrix in SO(3)
     // compute ln(R) in so(3)
     // formula taken from class notes (3.1.14)
     function logarithm_SO3_to_so3(R) {
         let trace = R[0][0] + R[1][1] + R[2][2];
         let beta = Math.acos((trace - 1.0) / 2.0);
-        console.log(beta);
 
         // degenerate case, beta close to 0
         if (Math.abs(beta) < epsilon) {
-            let c = 1./2. + (beta**2)/12.0 + 7.*(beta**4)/720.0;
+            let q = 1./2. + (beta**2)/12.0 + 7.*(beta**4)/720.0;
             let R_T = matrix_transpose_3x3(R);
             let M = sub_matrix_matrix(R, R_T);
-            return multiply_matrix_scalar(M, c);
+            return multiply_matrix_scalar(M, q);
         }
         // other degenerate case, beta close to pi
         else if (Math.abs(beta - Math.PI) < epsilon) {
@@ -118,22 +123,64 @@
         }
     }
 
-    // R 3x3 matrix, t 3x1 vector
+    // R 3x3 matrix, t = [t1, t2, t3] 3x1 vector
     // these define a matrix in SE(3)
-    // return a matrix and vector pair A (3x3) and v (3x1)
+    // return a matrix and vector pair A (3x3) and v = [v1, v2, v3] (3x1)
     // which define a matrix in se(3)
     function logarithm_SE3_to_se3(R, t) {
         let trace = R[0][0] + R[1][1] + R[2][2];
         let beta = Math.acos((trace - 1.0) / 2.0);
+        let q, r;
+        if (Math.abs(beta) < epsilon) {
+            q = 1./2. - (beta**2)/24.0 + (beta**4)/120.0;
+            r = 1./6. - (beta**5)/120.0 + (beta**7)/5040.0;
+        }
+        else {
+            q = (1 - Math.cos(beta))/(beta**2);
+            r = (beta - Math.sin(beta))/(beta**3);
+        }
         let A = logarithm_SO3_to_so3(R);
-        let q = (1 - Math.cos(beta))/(beta**2);
-        let r = (beta - Math.sin(beta))/(beta**3);
         let C = identity_matrix(3);
         C = add_matrix_matrix(C, multiply_matrix_scalar(A, q));
-        let Asquare = mul_matrix_matrix(A, A);
-        C = add_matrix_matrix(C, multiply_matrix_scalar(Asquare, r));
-        let Cinv = matrix_inverse_3x3(C);
-        mul_matrix_3x3_vector_3x1
+        let A_square = mul_matrix_matrix(A, A);
+        C = add_matrix_matrix(C, multiply_matrix_scalar(A_square, r));
+        let C_inv = matrix_inverse_3x3(C);
+        let v = mul_matrix_3x3_vector_3x1(C_inv, t);
+        return [A, v];
+    }
+
+    // find the displacement element that takes (R1, t1) to (R2, t2).
+    // i.e. compute (R1, t1)^-1 * (R2, t2).
+    function displacement_SE3(R1, t1, R2, t2) {
+        let R1_inv = matrix_transpose_3x3(R1);
+        let t1_inv = mul_matrix_3x3_vector_3x1(R1_inv, t1);
+        t1_inv = t1_inv.map(elem => -1 * elem);
+        let R_disp = mul_matrix_matrix(R1_inv, R2);
+        let t_disp = mul_matrix_3x3_vector_3x1(R1_inv, t2);
+        t_disp = [t_disp[0] + t1_inv[0], t_disp[1] + t1_inv[1], t_disp[2] + t1_inv[2]];
+        return [R_disp, t_disp];
+    }
+
+    function disp_based_distance_SE3(R1, t1, R2, t2) {
+        let [R, t] = displacement_SE3(R1, t1, R2, t2);
+        let [A, v] = logarithm_SE3_to_se3(R, t);
+        let sum = 0;
+        A.forEach(row => (row.forEach(elem => sum += elem**2)));
+        v.forEach(elem => sum += elem**2);
+        return Math.sqrt(sum);
+    }
+
+    function new_SE3_from_parameters(theta1, theta2, theta3, tx, ty, tz) {
+        let R = [[Math.cos(theta2)*Math.cos(theta3), -1*Math.cos(theta2)*Math.sin(theta3), Math.sin(theta2)],
+            [Math.cos(theta3)*Math.sin(theta1)*Math.sin(theta2) + Math.cos(theta1)*Math.sin(theta3), Math.cos(theta1)*Math.cos(theta3) - Math.sin(theta1)*Math.sin(theta2)*Math.sin(theta3), -1*Math.cos(theta2)*Math.sin(theta1)],
+            [-1*Math.cos(theta1)*Math.cos(theta3)*Math.sin(theta2) + Math.sin(theta1)*Math.sin(theta3), Math.cos(theta3)*Math.sin(theta1) + Math.cos(theta1)*Math.sin(theta2)*Math.sin(theta3), Math.cos(theta1)*Math.cos(theta2)]];
+        let t = [tx, ty, tz];
+        return [R, t];
+    }
+
+    // Apply (R, t) in SE3 to the vector x
+    function apply_SE3(R, t, x) {
+        return add_matrix_matrix(mul_matrix_3x3_vector_3x1(R, x), t);
     }
 
     let settings = {
@@ -196,10 +243,29 @@
     gui.add(settings, 'dist').name("Disp-Based Distance").disable();
 
 
+    // define standard basis vectors
+    let e1 = [1, 0, 0];
+    let e2 = [0, 1, 0];
+    let e3 = [0, 0, 1];
 
     engine.animation_loop(() => {
+        // create SE3 matrices from input params
+        let [R1, t1] = new_SE3_from_parameters(settings.theta_x1, settings.theta_y1, settings.theta_z1, settings.x1, settings.y1, settings.z1);
+        let [R2, t2] = new_SE3_from_parameters(settings.theta_x2, settings.theta_y2, settings.theta_z2, settings.x2, settings.y2, settings.z2);
+
+        // show operations on standard basis vectors
+        engine.draw_debug_vector(t1, apply_SE3(R1, t1, e1), 0.03, 0.15, 0xdd0000, 0.9);
+        engine.draw_debug_vector(t1, apply_SE3(R1, t1, e2), 0.03, 0.15, 0x00dd00, 0.9);
+        engine.draw_debug_vector(t1, apply_SE3(R1, t1, e3), 0.03, 0.15, 0x0000dd, 0.9);
+
+        engine.draw_debug_vector(t2, apply_SE3(R2, t2, e1), 0.03, 0.15, 0xf5ce20, 0.9);
+        engine.draw_debug_vector(t2, apply_SE3(R2, t2, e2), 0.03, 0.15, 0x20f5e7, 0.9);
+        engine.draw_debug_vector(t2, apply_SE3(R2, t2, e3), 0.03, 0.15, 0xd820f5, 0.9);
+
+        // update displacement
+        settings.dist = disp_based_distance_SE3(R1, t1, R2, t2);
         refresh_displays(gui);
-    })
+    });
 
 </script>
 </body>
