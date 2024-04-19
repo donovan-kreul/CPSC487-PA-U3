@@ -21,10 +21,117 @@
 <body>
 <script type="module">
     import {get_default_lil_gui, ThreeEngine, refresh_displays} from "../js/utils/utils_three.js";
+    import {dot_product, mul_matrix_scalar, cross_product, add_matrix_matrix} from "../js/utils/utils_math.js";
 
     // todo: create a visualization that demonstrates your knowledge of quaternions.  This is intentionally
     // todo: open-ended.  Be as creative as you want, or feel free to recreate any of the visualizations
     // todo: found in Section 3.3.
+
+    // adds c to z component of 3x1 vector v
+    function vec_add_z(v, c) {
+        return [v[0], v[1], v[2] + c];
+    }
+
+    // draws quaternion [w, x, y, z] in the "3.5D" way shown in class
+    function draw_quaternion(q, color) {
+        let l = Math.min(Math.max(Math.abs(q[0]) + 0.2, 0.2), 1.2);
+        engine.draw_debug_vector([0,0,0], q[1], 0.03, 0.15, color, 0.9);
+        engine.draw_debug_line(vec_add_z(q[1], l), vec_add_z(q[1], -l), false, 0.01, 0x000000, 0.9);
+        engine.draw_debug_sphere(vec_add_z(q[1], q[0]), 0.05, color, 0.9);
+    }
+
+    function quaternion_norm(q) {
+        return Math.sqrt(q[0]**2 + dot_product(q[1], q[1]));
+    }
+
+    function multiply_quaternions(q1, q2) {
+        let w = q1[0] * q2[0] - dot_product(q1[1], q2[1]);
+        let v_a = mul_matrix_scalar(q2[1], q1[0]);
+        let v_b = mul_matrix_scalar(q1[1], q2[0]);
+        let v_c = cross_product(q1[1], q2[1]);
+        let v = add_matrix_matrix(v_a, add_matrix_matrix(v_b, v_c));
+        return [w, [v[0][0], v[1][0], v[2][0]]];
+    }
+
+    let settings = {
+        w1: 1,
+        x1: 1,
+        y1: 0,
+        z1: 0,
+        q1_norm: 0,
+        w2: 1,
+        x2: 0,
+        y2: 1,
+        z2: 0,
+        q2_norm: 0,
+        w3: 0,
+        x3: 0,
+        y3: 0,
+        z3: 0,
+        q3_norm: 0,
+    };
+
+    let actions = {
+        reset1: function() {
+            settings.w1 = 0;
+            settings.x1 = 0;
+            settings.y1 = 0;
+            settings.z1 = 0;
+        },
+        reset2: function() {
+            settings.w2 = 0;
+            settings.x2 = 0;
+            settings.y2 = 0;
+            settings.z2 = 0;
+        }
+    };
+
+    let engine = ThreeEngine.new_default_3d();
+    let gui = get_default_lil_gui();
+
+    let folder1 = gui.addFolder("Quaternion 1");
+    folder1.add(settings, 'w1', -1, 1).name('w1');
+    folder1.add(settings, 'x1', -1, 1).name('x1');
+    folder1.add(settings, 'y1', -1, 1).name('y1');
+    folder1.add(settings, 'z1', -1, 1).name('z1');
+    folder1.add(settings, 'q1_norm').name('Norm of Q1:').disable();
+    folder1.add(actions, 'reset1').name('Reset Q1');
+
+    let folder2 = gui.addFolder("Quaternion 2");
+    folder2.add(settings, 'w2', -1, 1).name('w2');
+    folder2.add(settings, 'x2', -1, 1).name('x2');
+    folder2.add(settings, 'y2', -1, 1).name('y2');
+    folder2.add(settings, 'z2', -1, 1).name('z2');
+    folder2.add(settings, 'q2_norm').name('Norm of Q2:').disable();
+    folder2.add(actions, 'reset2').name('Reset Q2');
+
+    let folder3 = gui.addFolder("Output");
+    folder3.add(settings, 'w3', -1, 1).name('w3').disable();
+    folder3.add(settings, 'x3', -1, 1).name('x3').disable();
+    folder3.add(settings, 'y3', -1, 1).name('y3').disable();
+    folder3.add(settings, 'z3', -1, 1).name('z3').disable();
+    folder3.add(settings, 'q3_norm').name('Output Norm:').disable();
+
+    engine.animation_loop(() => {
+        let q1 = [settings.w1, [settings.x1, settings.y1, settings.z1]];
+        let q2 = [settings.w2, [settings.x2, settings.y2, settings.z2]];
+        let q3 = multiply_quaternions(q1, q2);
+
+        settings.q1_norm = quaternion_norm(q1);
+        settings.q2_norm = quaternion_norm(q2);
+        settings.q3_norm = quaternion_norm(q3);
+
+        [settings.w3, settings.x3, settings.y3, settings.z3] = [q3[0], q3[1][0], q3[1][1], q3[1][2]];
+
+        draw_quaternion(q1, 0xffaa00);
+        draw_quaternion(q2, 0xaa00ff);
+
+        console.log(q1);
+        console.log(q3);
+        draw_quaternion(q3, 0x00aaff);
+
+        refresh_displays(gui);
+    });
 
 </script>
 </body>
